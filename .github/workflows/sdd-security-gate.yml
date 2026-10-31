@@ -63,7 +63,10 @@ jobs:
 
       - name: 7. Verify & Compile Sloth SLO Specs
         run: |
-          docker run --rm -v "${GITHUB_WORKSPACE}/observability:/obs" ghcr.io/slok/sloth:latest generate \
+          mkdir -p "${GITHUB_WORKSPACE}/observability/generated"
+          docker run --rm --user "$(id -u):$(id -g)" \
+            -v "${GITHUB_WORKSPACE}/observability:/obs" \
+            ghcr.io/slok/sloth:latest generate \
             -i /obs/slos/ \
             -o /obs/generated/
 
