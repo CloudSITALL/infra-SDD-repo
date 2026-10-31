@@ -1,0 +1,72 @@
+name: SDD Security & Observability Gate
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  validate-and-block:
+    name: validate-and-block
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 1. Secret Scanning (Gitleaks)
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 2. SAST for Scripts & Automation (Semgrep)
+        uses: returntocorp/semgrep-action@v1
+        with:
+          config: p/default
+
+      - name: 3. Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.9.8"
+
+      - name: 4. Terraform Format & Validate
+        run: |
+          terraform fmt -check -recursive terraform/
+          for env in dev prod; do
+            terraform -chdir=terraform/environments/$env init -backend=false
+            terraform -chdir=terraform/environments/$env validate
+            terraform -chdir=terraform/environments/$env plan -input=false -refresh=false -out="$RUNNER_TEMP/$env.tfplan"
+            terraform -chdir=terraform/environments/$env show -json "$RUNNER_TEMP/$env.tfplan" > "$RUNNER_TEMP/$env.tfplan.json"
+          done
+
+      - name: 5. IaC Static Security Analysis (Checkov)
+        uses: bridgecrewio/checkov-action@v12
+        with:
+          directory: terraform/
+          framework: terraform
+          hard_fail_on: MEDIUM,HIGH,CRITICAL
+          compact: true
+
+      - name: 6. Enforce Terraform Tag Policy (Conftest)
+        run: |
+          for env in dev prod; do
+            docker run --rm \
+              -v "${RUNNER_TEMP}:/plans" \
+              -v "${GITHUB_WORKSPACE}/policies/opa:/policy" \
+              openpolicyagent/conftest test "/plans/$env.tfplan.json" --policy /policy
+          done
+
+      - name: 7. Verify & Compile Sloth SLO Specs
+        run: |
+          docker run --rm -v "${GITHUB_WORKSPACE}/observability:/obs" ghcr.io/slok/sloth:latest generate \
+            -i /obs/slos/ \
+            -o /obs/generated/
+
+      - name: 8. Verify Spec Kit Constitution Exists
+        run: |
+          test -f .specify/memory/constitution.md || (echo "Missing SDD Constitution!" && exit 1)

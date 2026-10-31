@@ -1,0 +1,8 @@
+endpoints:
+  - name: platform-health-baseline
+    group: core
+    url: "https://status.github.com/api/status.json"
+    interval: 5m
+    conditions:
+      - "[STATUS] == 200"
+      - "[RESPONSE_TIME] < 1000"

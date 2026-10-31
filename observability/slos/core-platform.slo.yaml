@@ -1,0 +1,23 @@
+version: "prometheus/v1"
+service: "core-platform"
+labels:
+  owner: "platform-engineering"
+  tier: "1"
+slos:
+  - name: "requests-availability"
+    objective: 99.9
+    description: "99.9% of platform requests must succeed."
+    sli:
+      events:
+        error_query: 'sum(rate(http_request_duration_seconds_count{job="core-platform",code=~"(5..|429)"}[{{.window}}]))'
+        total_query: 'sum(rate(http_request_duration_seconds_count{job="core-platform"}[{{.window}}]))'
+    alerting:
+      name: CorePlatformHighErrorRate
+      labels:
+        category: "availability"
+      page_alert:
+        labels:
+          severity: "critical"
+      ticket_alert:
+        labels:
+          severity: "warning"
